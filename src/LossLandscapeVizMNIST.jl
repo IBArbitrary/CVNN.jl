@@ -220,32 +220,59 @@ end
 # use chatgpt code to write the random directions code
 # then write loss calculation in a grid defined by the directions f(alpha, beta)
 
-norm(ns_vec_T1 - ns_vec_T2)
+# ensuring the two minimizer NS vectors are linearly independent
+round(norm(ns_vec_T1 - ns_vec_T2), digits=3) != 0.0
+dot(ns_vec_T1, ns_vec_T2) != 0.0
+rank(hcat(ns_vec_T1, ns_vec_T2)) == 2
 
-# we have two minimizers mpst_trained1 and mpst_trained2
-# corresponding vectors ns_vec_T1 and ns_vec_T2
 
 # Generating the unit vectors
 e1 = ns_vec_T1
 proj2 = (dot(e1, ns_vec_T2) / dot(e1, e1)) * e1
 e2 = ns_vec_T2 - proj2
 
+e12 = ns_vec_T1 / norm(ns_vec_T1)
+e22 = ns_vec_T2 / norm(ns_vec_T2)
+
+
+
 # e1 and e2 are the two unit vectors
 
 PlaneOriginNSVec(s, t, e1, e2) = s * e1 + t * e2
 PlaneNSVec(s, t, e1, e2, p0) = p0 + PlaneOriginNSVec(s, t, e1, e2)
 
-s_range = -10.0:0.5:20.0
-t_range = -10.0:0.5:20.0
+function PlaneProjection(v, e1, e2)
+    basis_matrix = hcat(e1, e2)
+    st = real.(basis_matrix \ v)
+    return st[1], st[2]
+end
 
-loss_grid = zeros(length(s_range), length(t_range))
+function PlaneProjection2(v, e1, e2)
+    e1 /= norm(e1)
+    e2 /= norm(e2)
+    s = real(conj(e1)' * v)
+    t = real(conj(e2)' * v)
+    return (s, t)
+end
+
+s_range = -5.0:0.2:5.0
+t_range = -5.0:0.2:5.0
+
+loss_grid_O = zeros(length(s_range), length(t_range))
+loss_grid_E = zeros(length(s_range), length(t_range))
+loss_grid_F = zeros(length(s_range), length(t_range))
 
 @showprogress for (si, s_) ∈ enumerate(s_range)
     for (ti, t_) ∈ enumerate(t_range)
         NSVec2Params!(PlaneOriginNSVec(s_, t_, e1, e2), mmodel)
-        loss_grid[si, ti] += crossentropy(mmodel(DATA_ODD[1]), DATA_ODD[2])
+        loss_grid_O[si, ti] += crossentropy(mmodel(DATA_ODD[1]), DATA_ODD[2])
+        loss_grid_E[si, ti] += crossentropy(mmodel(DATA_EVEN[1]), DATA_EVEN[2])
+        loss_grid_F[si, ti] += crossentropy(mmodel(DATA[1]), DATA[2])
     end
 end
+
+st1 = real.(PlaneProjection(ns_vec_T1, e1, e2))
+st2 = real.(PlaneProjection(ns_vec_T2, e1, e2))
 
 begin
     # CairoMakie.activate!()
@@ -267,15 +294,65 @@ begin
     f = Figure(size=(500, 400))
     ax = Axis(
         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
-        title="Loss (Sub)Surface", aspect=1 # Ensures the heatmap has square cells
+        title="Loss Surface for Data1", aspect=1 # Ensures the heatmap has square cells
     )
     heatmap!(
-        ax, s_range, t_range, loss_grid,
+        ax, s_range, t_range, loss_grid_O,
         colormap=:inferno, interpolate=true
     )
     contour!(
-        ax, s_range, t_range, loss_grid,
+        ax, s_range, t_range, loss_grid_O,
         levels=5, color=:black
+    )
+    scatter!(
+        ax, [st1, st2],
+        color=:white, strokecolor=:black, strokewidth=1
+    )
+    cb = Colorbar(f[:, 2]; colormap=:inferno)
+    display("image/png", f)
+end
+
+begin
+    # CairoMakie.activate!()
+    f = Figure(size=(500, 400))
+    ax = Axis(
+        f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
+        title="Loss Surface for Data2", aspect=1 # Ensures the heatmap has square cells
+    )
+    heatmap!(
+        ax, s_range, t_range, loss_grid_E,
+        colormap=:inferno, interpolate=true
+    )
+    contour!(
+        ax, s_range, t_range, loss_grid_E,
+        levels=5, color=:black
+    )
+    scatter!(
+        ax, [st1, st2],
+        color=:white, strokecolor=:black, strokewidth=1
+    )
+    cb = Colorbar(f[:, 2]; colormap=:inferno)
+    display("image/png", f)
+end
+
+begin
+    # CairoMakie.activate!()
+    f = Figure(size=(500, 400))
+    ax = Axis(
+        f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
+        title="Loss Surface for full data", aspect=1 # Ensures the heatmap has square cells
+    )
+    heatmap!(
+        ax, s_range, t_range, loss_grid_F,
+        colormap=:inferno, interpolate=true
+    )
+    contour!(
+        ax, s_range, t_range, loss_grid_F,
+        levels=5, color=:black
+    )
+    scatter!(
+        ax, [st1, st2],
+        color=:white, strokecolor=:black, strokewidth=1
     )
     cb = Colorbar(f[:, 2]; colormap=:inferno)
     display("image/png", f)
@@ -286,7 +363,7 @@ begin
     f = Figure(size=(500, 400))
     ax = Axis3(
         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)", zlabel="Loss",
-        title="Loss Surface", aspect=(1, 1, 1)
+        title="Loss Surface for Data1", aspect=(1, 1, 1)
     )
     surface!(
         ax, s_range, t_range, loss_grid,
@@ -296,11 +373,47 @@ begin
     f
 end
 
-function PlaneProjection(v, e1, e2)
-    basis_matrix = hcat(e1, e2)
-    st = basis_matrix \ v
-    return st[1], st[2]
+begin
+    GLMakie.activate!()
+    f = Figure(size=(500, 400))
+    ax = Axis3(
+        f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)", zlabel="Loss",
+        title="Loss Surface for Data2", aspect=(1, 1, 1)
+    )
+    surface!(
+        ax, s_range, t_range, loss_grid_E,
+        colormap=:inferno, shading=NoShading
+    )
+    # display("image/png", f)
+    f
 end
 
-PlaneProjection(ns_vec_T1, e1, e2)
-PlaneProjection(ns_vec_T2, e1, e2)
+# MODEL EVOLUTION ANALYSIS #####################################################
+
+begin
+    mtrain_cfg_ = [
+        200 => (0.02, 1),
+    ]
+    L = 1
+    mtrain_cfg = repeat(mtrain_cfg_, L)
+end
+
+begin
+    mmodel = Chain(
+        Dense(28^2 => 16, CVNN.zrelu; init=CVNN.complex_glorot_uniform),
+        Dense(16 => 16, CVNN.zrelu; init=CVNN.complex_glorot_uniform),
+        Dense(16 => 10, CVNN.abslu; init=CVNN.complex_glorot_uniform),
+        softmax
+    )
+    mloss(x, y) = crossentropy(mmodel(x), y)
+    mps = params(mmodel)
+    mpst_02 = deepcopy(tuple(mps...))
+    @save "./data/mmodel2.bson" mmodel
+end
+
+mldata, msubfout = CVNN.SwitchTrainerSymplectic(
+    mmodel, crossentropy, [DATA_ODD, DATA_EVEN], mtrain_cfg;
+    subf=CVNN.LossLandscapeAnalysis01
+)
+@save "./data/mmodel-trained2.bson" mmodel
+mpst_trained2 = deepcopy(tuple(params(mmodel)...))
