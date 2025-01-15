@@ -18,10 +18,12 @@ end
 begin
     rng = MersenneTwister()
     Random.seed!(rng, 1337)
+    DATE = Dates.format(now(), "ddmmyy")
 end
 
 # DATA IMPORT ##################################################################
 
+# training data set
 begin
     trainset = MNIST(:train)
     DSIZE = length(trainset)
@@ -159,24 +161,12 @@ begin
     display("image/png", f)
 end
 
-ns_vec_01 = reduce(vcat, vec.(mpst_01))
-ns_vec_02 = reduce(vcat, vec.(mpst_02))
-ns_vec_03 = reduce(vcat, vec.(mpst_03))
-ns_vec_04 = reduce(vcat, vec.(mpst_04))
-ns_vec_T1 = reduce(vcat, vec.(mpst_trained1))
-ns_vec_T2 = reduce(vcat, vec.(mpst_trained2))
-ns_vec_T3 = reduce(vcat, vec.(mpst_trained3))
-ns_vec_T4 = reduce(vcat, vec.(mpst_trained4))
-
-isindependent(ns_vec_01, ns_vec_02)
-isindependent(ns_vec_T1, ns_vec_T2)
-isindependent(ns_vec_03, ns_vec_04)
-isindependent(ns_vec_T3, ns_vec_T4)
-
 # mpst_ = deepcopy(mpst_trained1)
 # @save "./data/$DATE/mpst_.bson" mpst_
 
-# 1D LINEAR INTERPOLATION METHOD ###############################################
+# NSVEC TO MODEL CONVERSION METHODS ############################################
+
+ParamTupleToNSVec(mpst) = reduce(vcat, vec.(mpst))
 
 LerpNSVec(α, NSVec1, NSVec2) = (1 - α) .* NSVec1 + α .* NSVec2
 
@@ -219,6 +209,23 @@ function isindependent(vec1, vec2)
     ]
 end
 
+# NS VECTORS CALCULATION #######################################################
+begin
+    ns_vec_01 = ParamTupleToNSVec(mpst_01)
+    ns_vec_02 = ParamTupleToNSVec(mpst_02)
+    ns_vec_03 = ParamTupleToNSVec(mpst_03)
+    ns_vec_04 = ParamTupleToNSVec(mpst_04)
+    ns_vec_T1 = ParamTupleToNSVec(mpst_trained1)
+    ns_vec_T2 = ParamTupleToNSVec(mpst_trained2)
+    ns_vec_T3 = ParamTupleToNSVec(mpst_trained3)
+    ns_vec_T4 = ParamTupleToNSVec(mpst_trained4)
+
+    isindependent(ns_vec_01, ns_vec_02)
+    isindependent(ns_vec_T1, ns_vec_T2)
+    isindependent(ns_vec_03, ns_vec_04)
+    isindependent(ns_vec_T3, ns_vec_T4)
+end
+
 # LERP LOSS LANDSCAPE ANALYSIS #################################################
 dα = 0.005
 alphas = 0:dα:1
@@ -236,48 +243,35 @@ begin
         title="1D Loss Surface (even)"
     )
     lines!(f[1, 1], losses_alpha, label="NSvec distance", color="Black")
-    # f[1, 2] = Legend(f, ax, "", framevisible=false)
     display("image/png", f)
 end
 
 # 2DLERP LOSS LANDSCAPE ANALYSIS ###############################################
 
-# use chatgpt code to write the random directions code
-# then write loss calculation in a grid defined by the directions f(alpha, beta)
-
-# Generating the unit vectors
-begin
-    e1 = ns_vec_T1
-    proj2 = (dot(e1, ns_vec_T2) / dot(e1, e1)) * e1
-    e2 = ns_vec_T2 - proj2
+function GramSchmidtOrtho2(v1, v2)
+    e1 = v1
+    proj = (dot(e1, v2) / dot(e1, e1)) * e1
+    e2 = v2 - proj
     e1 /= norm(e1)
     e2 /= norm(e2)
+    return e1, e2
 end
-
-begin
-    e3 = ns_vec_T3
-    proj4 = (dot(e3, ns_vec_T4) / dot(e3, e3)) * e3
-    e4 = ns_vec_T4 - proj4
-    e3 /= norm(e3)
-    e4 /= norm(e4)
-end
-# e1 and e2 are the two unit vectors
 
 PlaneOriginNSVec(s, t, e1, e2) = s * e1 + t * e2
+
 PlaneNSVec(s, t, e1, e2, p0) = p0 + PlaneOriginNSVec(s, t, e1, e2)
 
 function PlaneProjection(v, e1, e2)
-    basis_matrix = hcat(e1, e2)
-    st = real.(basis_matrix \ v)
-    return st[1], st[2]
-end
-
-function PlaneProjection2(v, e1, e2)
     e1 /= norm(e1)
     e2 /= norm(e2)
     s = real(dot(v, e1))
     t = real(dot(v, e2))
     return (s, t)
+end
+
+begin
+    e1, e2 = GramSchmidtOrtho2(ns_vec_T1, ns_vec_T2)
+    e3, e4 = GramSchmidtOrtho2(ns_vec_T3, ns_vec_T4)
 end
 
 begin
@@ -304,18 +298,38 @@ end
     end
 end
 
-st1 = real.(PlaneProjection2(ns_vec_T1, e1, e2))
-st2 = real.(PlaneProjection2(ns_vec_T2, e1, e2))
-st3 = real.(PlaneProjection2(ns_vec_T3, e3, e4))
-st4 = real.(PlaneProjection2(ns_vec_T4, e3, e4))
-st31 = PlaneProjection2(ns_vec_T3, e1, e2)
-st41 = PlaneProjection2(ns_vec_T4, e1, e2)
-st12 = PlaneProjection2(ns_vec_T1, e3, e4)
-st22 = PlaneProjection2(ns_vec_T2, e3, e4)
+begin
+    both_training_results = [
+        "LS_O" => loss_grid_O,
+        "LS_E" => loss_grid_E,
+        "LS_F" => loss_grid_F,
+        "LS_O2" => loss_grid_O2,
+        "LS_E2" => loss_grid_E2,
+        "LS_F2" => loss_grid_F2,
+        "e1" => e1,
+        "e2" => e2,
+        "e3" => e3,
+        "e4" => e4,
+    ]
+    @save "./data/$DATE/training_results-01" odd_training_results
+end
+
+begin
+    st1 = PlaneProjection(ns_vec_T1, e1, e2)
+    st2 = PlaneProjection(ns_vec_T2, e1, e2)
+    st3 = PlaneProjection(ns_vec_T3, e3, e4)
+    st4 = PlaneProjection(ns_vec_T4, e3, e4)
+    st31 = PlaneProjection(ns_vec_T3, e1, e2)
+    st41 = PlaneProjection(ns_vec_T4, e1, e2)
+    st12 = PlaneProjection(ns_vec_T1, e3, e4)
+    st22 = PlaneProjection(ns_vec_T2, e3, e4)
+end
+
+# PLOT METHODS #################################################################
 
 function Plot1Heatmap(
     xrange, yrange, grid, cmap, interp,
-    xlabel, ylabel, title, figsize
+    xlabel, ylabel, title, figsize;
 )
     f = Figure(size=figsize)
     ax = Axis(
@@ -331,6 +345,28 @@ function Plot1Heatmap(
         levels=5, color=:black
     )
     cb = Colorbar(f[:, 2]; colormap=cmap)
+    display("image/png", f)
+    # return f
+end
+
+function Plot1HeatmapCRFixed(
+    xrange, yrange, grid, cmap, interp, colorrange,
+    xlabel, ylabel, title, figsize;
+)
+    f = Figure(size=figsize)
+    ax = Axis(
+        f[1, 1], xlabel=xlabel, ylabel=ylabel,
+        title=title, aspect=1
+    )
+    heatmap!(
+        ax, xrange, yrange, grid,
+        colormap=cmap, interpolate=interp, colorrange=colorrange
+    )
+    contour!(
+        ax, xrange, yrange, grid,
+        levels=5, color=:black
+    )
+    cb = Colorbar(f[:, 2]; colormap=cmap, colorrange=colorrange)
     display("image/png", f)
     # return f
 end
@@ -413,6 +449,8 @@ function Plot1Surface(
     return f
 end
 
+# FIGURES ######################################################################
+
 Plot1Surface(
     s_range, t_range, loss_grid_F,
     :inferno, NoShading, "s (e1 coordinate)", "t (e2 coordinate)", "Loss",
@@ -431,293 +469,85 @@ Plot1Heatmap2Scatter(
     "Loss Surface for odd data (MinSet 1)", (500, 400)
 )
 
-# begin
-#     # CairoMakie.activate!()
-#     f = Figure(size=(500, 400))
-#     ax = Axis(
-#         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
-#         title="Loss (Sub)Surface", aspect=1
-#     )
-#     heatmap!(
-#         ax, s_range, t_range, loss_grid,
-#         colormap=:inferno, interpolate=true
-#     )
-#     cb = Colorbar(f[:, 2]; colormap=:inferno)
-#     display("image/png", f)
-# end
+# 3D SLICES ####################################################################
 
-# begin
-#     # CairoMakie.activate!()
-#     f = Figure(size=(500, 400))
-#     ax = Axis(
-#         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
-#         title="Loss Surface for Data1 (MinSet 1)", aspect=1 # Ensures the heatmap has square cells
-#     )
-#     heatmap!(
-#         ax, s_range, t_range, loss_grid_O,
-#         colormap=:inferno, interpolate=true
-#     )
-# contour!(
-#     ax, s_range, t_range, loss_grid_O,
-#     levels=5, color=:black
-# )
-#     scatter!(
-#         ax, [st1, st2],
-#         color=:white, strokecolor=:black, strokewidth=1
-#     )
-#     cb = Colorbar(f[:, 2]; colormap=:inferno)
-#     display("image/png", f)
-# end
-
-# begin
-#     # CairoMakie.activate!()
-#     f = Figure(size=(500, 400))
-#     ax = Axis(
-#         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
-#         title="Loss Surface for Data1 (MinSet 2)", aspect=1 # Ensures the heatmap has square cells
-#     )
-#     heatmap!(
-#         ax, s_range, t_range, loss_grid_O2,
-#         colormap=:inferno, interpolate=true
-#     )
-#     contour!(
-#         ax, s_range, t_range, loss_grid_O2,
-#         levels=5, color=:black
-#     )
-#     scatter!(
-#         ax, [st3, st4],
-#         color=:white, strokecolor=:black, strokewidth=1
-#     )
-#     cb = Colorbar(f[:, 2]; colormap=:inferno)
-#     display("image/png", f)
-# end
-
-# begin
-#     # CairoMakie.activate!()
-#     f = Figure(size=(500, 400))
-#     ax = Axis(
-#         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
-#         title="Loss Surface for Data2 (MinSet 1)", aspect=1 # Ensures the heatmap has square cells
-#     )
-#     heatmap!(
-#         ax, s_range, t_range, loss_grid_E,
-#         colormap=:inferno, interpolate=true
-#     )
-#     contour!(
-#         ax, s_range, t_range, loss_grid_E,
-#         levels=5, color=:black
-#     )
-#     scatter!(
-#         ax, [st1, st2],
-#         color=:white, strokecolor=:black, strokewidth=1
-#     )
-#     cb = Colorbar(f[:, 2]; colormap=:inferno)
-#     display("image/png", f)
-# end
-
-# begin
-#     # CairoMakie.activate!()
-#     f = Figure(size=(500, 400))
-#     ax = Axis(
-#         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
-#         title="Loss Surface for Data2 (MinSet 2)", aspect=1 # Ensures the heatmap has square cells
-#     )
-#     heatmap!(
-#         ax, s_range, t_range, loss_grid_E2,
-#         colormap=:inferno, interpolate=true
-#     )
-#     contour!(
-#         ax, s_range, t_range, loss_grid_E2,
-#         levels=5, color=:black
-#     )
-#     scatter!(
-#         ax, [st3, st4],
-#         color=:white, strokecolor=:black, strokewidth=1
-#     )
-#     cb = Colorbar(f[:, 2]; colormap=:inferno)
-#     display("image/png", f)
-# end
-
-# begin
-#     # CairoMakie.activate!()
-#     f = Figure(size=(500, 400))
-#     ax = Axis(
-#         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
-#         title="Loss Surface for full data (MinSet 1)", aspect=1 # Ensures the heatmap has square cells
-#     )
-#     heatmap!(
-#         ax, s_range, t_range, loss_grid_F,
-#         colormap=:inferno, interpolate=true
-#     )
-#     contour!(
-#         ax, s_range, t_range, loss_grid_F,
-#         levels=5, color=:black
-#     )
-#     scatter!(
-#         ax, [st1, st2],
-#         color=:white, strokecolor=:black, strokewidth=1
-#     )
-#     scatter!(
-#         ax, [st31, st41],
-#         color=:black, strokecolor=:white, strokewidth=1
-#     )
-#     cb = Colorbar(f[:, 2]; colormap=:inferno)
-#     display("image/png", f)
-# end
-
-# begin
-#     # CairoMakie.activate!()
-#     f = Figure(size=(500, 400))
-#     ax = Axis(
-#         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
-#         title="Loss Surface for full data (MinSet 2)", aspect=1 # Ensures the heatmap has square cells
-#     )
-#     heatmap!(
-#         ax, s_range, t_range, loss_grid_F2,
-#         colormap=:inferno, interpolate=true
-#     )
-#     contour!(
-#         ax, s_range, t_range, loss_grid_F2,
-#         levels=5, color=:black
-#     )
-#     scatter!(
-#         ax, [st3, st4],
-#         color=:white, strokecolor=:black, strokewidth=1
-#     )
-#     cb = Colorbar(f[:, 2]; colormap=:inferno)
-#     display("image/png", f)
-# end
-
-# begin
-#     # CairoMakie.activate!()
-#     f = Figure(size=(500, 400))
-#     ax = Axis(
-#         f[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)",
-#         title="Loss Surface for full data (MinSet 2)", aspect=1 # Ensures the heatmap has square cells
-#     )
-#     heatmap!(
-#         ax, s_range, t_range, loss_grid_F2,
-#         colormap=:inferno, interpolate=true
-#     )
-#     contour!(
-#         ax, s_range, t_range, loss_grid_F2,
-#         levels=5, color=:black
-#     )
-#     scatter!(
-#         ax, [st3, st4],
-#         color=:white, strokecolor=:black, strokewidth=1
-#     )
-#     scatter!(
-#         ax, [st12, st22],
-#         color=:black, strokecolor=:white, strokewidth=1
-#     )
-#     cb = Colorbar(f[:, 2]; colormap=:inferno)
-#     display("image/png", f)
-# end
-
-# begin
-#     GLMakie.activate!()
-#     fO = Figure(size=(500, 400))
-#     ax = Axis3(
-#         fO[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)", zlabel="Loss",
-#         title="Loss Surface for Data1 (MinSet 1)", aspect=(1, 1, 1)
-#     )
-#     surface!(
-#         ax, s_range, t_range, loss_grid_O,
-#         colormap=:inferno, shading=NoShading
-#     )
-#     # display("image/png", f)
-#     display(GLMakie.Screen(), fO)
-# end
-
-# begin
-#     GLMakie.activate!()
-#     fO = Figure(size=(500, 400))
-#     ax = Axis3(
-#         fO[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)", zlabel="Loss",
-#         title="Loss Surface for Data1 (MinSet 2)", aspect=(1, 1, 1)
-#     )
-#     surface!(
-#         ax, s_range, t_range, loss_grid_O2,
-#         colormap=:inferno, shading=NoShading
-#     )
-#     # display("image/png", f)
-#     display(GLMakie.Screen(), fO)
-# end
-
-# begin
-#     GLMakie.activate!()
-#     fE = Figure(size=(500, 400))
-#     ax = Axis3(
-#         fE[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)", zlabel="Loss",
-#         title="Loss Surface for Data2 (MinSet 1)", aspect=(1, 1, 1)
-#     )
-#     surface!(
-#         ax, s_range, t_range, loss_grid_E,
-#         colormap=:inferno, shading=NoShading
-#     )
-#     # display("image/png", f)
-#     display(GLMakie.Screen(), fE)
-# end
-
-# begin
-#     GLMakie.activate!()
-#     fE = Figure(size=(500, 400))
-#     ax = Axis3(
-#         fE[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)", zlabel="Loss",
-#         title="Loss Surface for Data2 (MinSet 2)", aspect=(1, 1, 1)
-#     )
-#     surface!(
-#         ax, s_range, t_range, loss_grid_E2,
-#         colormap=:inferno, shading=NoShading
-#     )
-#     # display("image/png", f)
-#     display(GLMakie.Screen(), fE)
-# end
-
-# begin
-#     GLMakie.activate!()
-#     fF = Figure(size=(500, 400))
-#     ax = Axis3(
-#         fF[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)", zlabel="Loss",
-#         title="Loss Surface for full data (MinSet 1)", aspect=(1, 1, 1)
-#     )
-#     surface!(
-#         ax, s_range, t_range, loss_grid_F,
-#         colormap=:inferno, shading=NoShading
-#     )
-#     # display("image/png", f)
-#     display(GLMakie.Screen(), fF)
-# end
-
-# begin
-#     GLMakie.activate!()
-#     fF = Figure(size=(500, 400))
-#     ax = Axis3(
-#         fF[1, 1], xlabel="s (e1 coordinate)", ylabel="t (e2 coordinate)", zlabel="Loss",
-#         title="Loss Surface for full data (MinSet 2)", aspect=(1, 1, 1)
-#     )
-#     surface!(
-#         ax, s_range, t_range, loss_grid_F,
-#         colormap=:inferno, shading=NoShading
-#     )
-#     # display("image/png", f)
-#     display(GLMakie.Screen(), fF)
-# end
-begin
-    both_training_results = [
-        "LS_O" => loss_grid_O,
-        "LS_E" => loss_grid_E,
-        "LS_F" => loss_grid_F,
-        "LS_O2" => loss_grid_O2,
-        "LS_E2" => loss_grid_E2,
-        "LS_F2" => loss_grid_F2,
-        "e1" => e1,
-        "e2" => e2,
-        "e3" => e3,
-        "e4" => e4,
-    ]
-    @save "./data/$DATE/odd_training_results" odd_training_results
+function NormalOfPlane(e1, e2)
+    B = hcat(e1, e2)
+    n = nullspace(B')[:, end] # taking only first
+    n = normalize(n)
+    return n
 end
 
-# LINE OF INTERSECTION #########################################################
+Space3DOriginNSVec(s, t, u, e1, e2, n) = s * e1 + t * e2 + u * n
+
+Space3DNSVec(s, t, u, e1, e2, n, p0) = p0 + Space3DOriginNSVec(
+    s, t, u, e1, e2, n
+)
+
+begin
+    mmodel = Chain(
+        Dense(28^2 => 16, CVNN.zrelu; init=CVNN.complex_glorot_uniform),
+        Dense(16 => 16, CVNN.zrelu; init=CVNN.complex_glorot_uniform),
+        Dense(16 => 10, CVNN.abslu; init=CVNN.complex_glorot_uniform),
+        softmax
+    ) |> f64
+    @save "./data/$DATE/mmodel-temp.bson" mmodel
+end
+
+begin
+    @load "./data/$DATE/mpst_trained1.bson" mpst_trained1
+    @load "./data/$DATE/mpst_trained2.bson" mpst_trained2
+    @load "./data/$DATE/mpst_trained3.bson" mpst_trained3
+    @load "./data/$DATE/mpst_trained4.bson" mpst_trained4
+    ns_vec_T1 = ParamTupleToNSVec(mpst_trained1)
+    ns_vec_T2 = ParamTupleToNSVec(mpst_trained2)
+    ns_vec_T3 = ParamTupleToNSVec(mpst_trained3)
+    ns_vec_T4 = ParamTupleToNSVec(mpst_trained4)
+    println(isindependent(ns_vec_T1, ns_vec_T2))
+    println(isindependent(ns_vec_T3, ns_vec_T4))
+    e1, e2 = GramSchmidtOrtho2(ns_vec_T1, ns_vec_T2)
+    e3, e4 = GramSchmidtOrtho2(ns_vec_T3, ns_vec_T4)
+    n1 = NormalOfPlane(e1, e2)
+    n2 = NormalOfPlane(e3, e4)
+end
+
+begin
+    s_range = -30.0:2:30.0
+    t_range = -30.0:2:30.0
+    u_range = -80.0:8:80.0
+    loss_volgrid_O = zeros(length(s_range), length(t_range), length(u_range))
+end
+
+@showprogress for (s, s_) ∈ enumerate(s_range)
+    for (t, t_) ∈ enumerate(t_range)
+        for (u, u_) ∈ enumerate(u_range)
+            NSVec2Params!(Space3DOriginNSVec(s_, t_, u_, e1, e2, n1), mmodel)
+            loss_volgrid_O[s, t, u] += crossentropy(
+                mmodel(DATA_ODD[1]), DATA_ODD[2]
+            )
+        end
+    end
+end
+@save "./data/$DATE/loss_volgrid_O_02.bson" loss_volgrid_O
+
+crange = (minimum(loss_volgrid_O), maximum(loss_volgrid_O))
+
+Plot1HeatmapCRFixed(
+    s_range, t_range, loss_volgrid_O[:, :, 1], :inferno, true,
+    crange, "s (e1 coordinate)", "t (e2 coordinate)",
+    "Loss Surface for full data (MinSet 1)", (500, 400)
+)
+
+n_ = NormalOfPlane(e1, e2)
+
+norm(Space3DOriginNSVec(10, 10, 10, e1, e2, n1) - PlaneOriginNSVec(10, 10, e1, e2))
+
+dot(n_, n1)
+
+NSVec2Params!(Space3DOriginNSVec(10, 10, 80, e1, e2, n_), mmodel)
+NSVec2Params!(PlaneOriginNSVec(10, 10, e1, e2), mmodel)
+crossentropy(mmodel(DATA_ODD[1]), DATA_ODD[2])
+
+norm(loss_volgrid_O[:, :, 1] - loss_volgrid_O[:, :, 21])
+
+norm(PlaneOriginNSVec(10, 10, e1, e2) - PlaneOriginNSVec(10, 100, e1, e2))
