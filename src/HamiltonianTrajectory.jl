@@ -109,8 +109,8 @@ begin
 end
 
 begin
-    s_range = -45.0:3:45.0
-    t_range = -45.0:3:45.0
+    s_range = -8.0:0.2:12.0
+    t_range = -8.0:0.2:12.0
     loss_grid_O = zeros(length(s_range), length(t_range))
     loss_grid_E = zeros(length(s_range), length(t_range))
     loss_grid_F = zeros(length(s_range), length(t_range))
@@ -118,30 +118,37 @@ end
 
 for (si, s_) ∈ enumerate(s_range)
     @showprogress for (ti, t_) ∈ enumerate(t_range)
-        LS.NSVec2Params!(PlaneOriginNSVec(s_, t_, e1, e2), mmodel)
+        LS.NSVec2Params!(LS.PlaneOriginNSVec(s_, t_, e1, e2), mmodel)
         loss_grid_O[si, ti] += crossentropy(mmodel(DATA_ODD[1]), DATA_ODD[2])
         loss_grid_E[si, ti] += crossentropy(mmodel(DATA_EVEN[1]), DATA_EVEN[2])
         loss_grid_F[si, ti] += crossentropy(mmodel(DATA[1]), DATA[2])
     end
 end
 
-loss_surface_1k = [
+loss_surfaces = [
     "O" => loss_grid_O,
     "E" => loss_grid_E,
     "F" => loss_grid_F
 ]
-@save "./data/$DATE/loss_surface_1k.bson" loss_surface_1k
+range_st = [
+    "s" => -8.0:0.2:12.0,
+    "t" => -8.0:0.2:12.0
+]
+@save "./data/$DATE/loss_surface_40k-02.bson" loss_surfaces
+@save "./data/$DATE/LS_range_40k-02.bson" range_st
 
 ################################################################################
 LOAD = true
 
 if LOAD
-    s_range = -45.0:3:45.0
-    t_range = -45.0:3:45.0
-    @load "./data/$DATE/loss_surface_1k.bson" loss_surface_1k
-    loss_grid_O = loss_surface_1k[1].second
-    loss_grid_E = loss_surface_1k[2].second
-    loss_grid_F = loss_surface_1k[3].second
+    DATE2 = "160125"
+    @load "./data/$DATE2/LS_range_40k-02.bson" range
+    @load "./data/$DATE2/loss_surface_40k-02.bson" loss_surfaces
+    loss_grid_O = loss_surfaces[1].second
+    loss_grid_E = loss_surfaces[2].second
+    loss_grid_F = loss_surfaces[3].second
+    s_range = range[1].second
+    t_range = range[2].second
 end
 
 begin
@@ -151,13 +158,13 @@ begin
     st4 = PlaneProjection(ns_vec_T4, e3, e4)
 end
 
-Plot1Heatmap1Scatter(
+LS.Plot1Heatmap1Scatter(
     s_range, t_range, loss_grid_O, [st1, st2],
-    :inferno, true, "s (e1 coordinate)", "t (e2 coordinate)",
+    :inferno, true, 14, "s (e1 coordinate)", "t (e2 coordinate)",
     "Loss Surface for odd data (MinSet 1)", (500, 400)
 )
 
-Plot1Surface(
+LS.Plot1Surface(
     s_range, t_range, loss_grid_O, :inferno,
     NoShading, "s (e1 coordinate)", "t (e2 coordinate)",
     "Loss", "Loss surface of Data 1", (500, 500)
@@ -179,8 +186,8 @@ end
 
 begin
     mtrain_cfg_ = [
-        50 => (0.06, 1),
-        250 => (0.02im, 1, "semi-implicit-euler"),
+        # 50 => (0.06, 1),
+        300 => (0.08im, 1, "semi-implicit-euler"),
         # 400 => (0.05im, 1, "normed-semi-implicit-euler", 0.2),
     ]
     L = 1
@@ -196,19 +203,17 @@ begin
         softmax
     ) |> f64
     mps = params(mmodel)
-    # LS.NSVec2Params!(PlaneOriginNSVec(25, 25, e1, e2), mmodel)
-    mpst_01 = deepcopy(tuple(mps...))
-    @save "./data/$DATE/mmodel-01.bson" mmodel
+    LS.NSVec2Params!(PlaneOriginNSVec(5, 5, e1, e2), mmodel)
+    mpst_03 = deepcopy(tuple(mps...))
+    @save "./data/$DATE/mmodel-03.bson" mmodel
 end
 
 mldata, msubfout = CVNN.SwitchTrainerSymplectic(
     mmodel, crossentropy, [DATA_ODD, DATA_EVEN], mtrain_cfg;
     subf=NSVecSubf
 )
-
-# @save "./data/$DATE/mmodel-04-trained.bson" mmodel
-# mpst_trained4 = deepcopy(tuple(params(mmodel)...))
-# @save "./data/$DATE/mpst_trained4.bson" mpst_trained4
+# @save "./data/$DATE/HamTrainingLosses03.bson mldata
+# @save "./data/$DATE/HamTrainingNSVecs03.bson" msubfout
 
 begin
     mf = Figure(size=(1000, 400))
@@ -239,19 +244,23 @@ stcoords = [LossSurface.PlaneProjection(vec, e1, e2) for vec ∈ msubfout]
 
 LS.Plot1Heatmap1ScatterTraj(
     s_range, t_range, loss_grid_O, [st1, st2],
-    stcoords, :inferno, :white, true, "s (e1 coordinate)",
+    stcoords, :inferno, :white, true, 65, "s (e1 coordinate)",
     "t (e2 coordinate)", "Loss surface for Data 1 and a training trajectory",
     (500, 500);
-    limits=(0.16, 0.26, -0.28, -0.20)
+    limits=(4.4, 5.2, 4.4, 5.2)
 );
 
 # PCA FOR PROJECTION ###########################################################
 
 # msubfout is vector of network space VECTORS
-@save "./data/$DATE/Grad+HamTrainingNSVecs03.bson" msubfout
+# @save "./data/$DATE/HamTrainingLosses03.bson mldata
+# @save "./data/$DATE/HamTrainingNSVecs03.bson" msubfout
+@load "./data/$DATE/HamTrainingLosses02.bson" mldata
+@load "./data/$DATE/HamTrainingNSVecs02.bson" msubfout
+stcoords = [LossSurface.PlaneProjection(vec, e1, e2) for vec ∈ msubfout]
 
-M_h = transpose((reduce(hcat, tuple(msubfout[51:end]...))))
-M_g = transpose((reduce(hcat, tuple(msubfout[1:50]...))))
+# M_h = transpose((reduce(hcat, tuple(msubfout[51:end]...))))
+# M_g = transpose((reduce(hcat, tuple(msubfout[1:50]...))))
 
 function PCA_N(X, N)
     avg = mean(X, dims=1)
@@ -273,13 +282,13 @@ stcoords_h = [PlaneProjection(vec, pc1_h, pc2_h) for vec ∈ msubfout[51:end]]
 begin
     f = Figure(size=(500, 500))
     ax = Axis(f[1, 1], aspect=1, xlabel="e1", ylabel="e2", title="grad+ham")
+    # scatter!(
+    #     ax, stcoords[1:50], color="red",
+    #     markersize=Base.range(2, 16, length=length(stcoords[1:50]))
+    # )
     scatter!(
-        ax, stcoords[1:50], color="red",
-        markersize=range(2, 16, length=length(stcoords[1:50]))
-    )
-    scatter!(
-        ax, stcoords[51:end], color="blue",
-        markersize=range(2, 16, length=length(stcoords[51:end]))
+        ax, stcoords[1:end], color="blue",
+        markersize=Base.range(2, 16, length=length(stcoords[1:end]))
     )
     display("image/png", f)
 end

@@ -2,7 +2,7 @@ module LossSurface
 
 export ParamTupleToNSVec, LerpNSVec
 export NSVec2Params, NSVec2Params!
-export isindependent, GramSchmidtOrtho2
+export isindependent, isindependent2, GramSchmidtOrtho2
 export PlaneOriginNSVec, PlaneNSVec, PlaneProjection
 export Plot1Heatmap, Plot1Heatmap1Scatter, Plot1Heatmap2Scatter
 export Plot1HeatmapCRFixed, Plot1Surface
@@ -46,7 +46,7 @@ function NSVec2Params!(nsvec, model)
     update_params!(model, tuple(reconstructed_params...))
 end
 
-function isindependent(vec1, vec2)
+function isindependent2(vec1, vec2)
     val1 = round(norm(vec1 - vec2), digits=4)
     val2 = round(dot(vec1, vec2), digits=4)
     val3 = rank(hcat(vec1, vec2))
@@ -55,6 +55,12 @@ function isindependent(vec1, vec2)
         "dot" => val2,
         "rank" => val3
     ]
+end
+
+function isindependent(veclist)
+    M = hcat(veclist...)
+    N = size(M, 2)
+    return rank(M) == N
 end
 
 function GramSchmidtOrtho2(v1, v2)
@@ -125,7 +131,7 @@ end
 
 function Plot1Heatmap1Scatter(
     xrange, yrange, grid, scpts,
-    cmap, interp,
+    cmap, interp, clevels,
     xlabel, ylabel, title, figsize
 )
     f = Figure(size=figsize)
@@ -140,7 +146,7 @@ function Plot1Heatmap1Scatter(
     )
     contour!(
         ax, xrange, yrange, grid,
-        levels=5, color=:black
+        levels=clevels, color=:white
     )
     scatter!(
         ax, scpts,
@@ -205,7 +211,7 @@ end
 
 function Plot1Heatmap1ScatterTraj(
     xrange, yrange, grid, scpts,
-    traj, cmap, trcolor, interp,
+    traj, cmap, trcolor, interp, clevel,
     xlabel, ylabel, title, figsize; limits=nothing
 )
     # CairoMakie.activate!()
@@ -224,7 +230,7 @@ function Plot1Heatmap1ScatterTraj(
     )
     contour!(
         ax, xrange, yrange, grid,
-        levels=5, color=:black
+        levels=clevel, color=:white
     )
     scatter!(
         ax, scpts,

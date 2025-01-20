@@ -14,6 +14,7 @@ using Flux: params, train!, relu
 import Flux.Optimise: apply!, Descent, AbstractOptimiser
 using LinearAlgebra, Random, SparseArrays
 using StatsBase: sample
+using CairoMakie, GLMakie
 
 lbr(x::Char) = println(x^80)
 lbr() = lbr('=')
@@ -119,11 +120,11 @@ function SwitchTrainer(
                 loss(model(DATA[1]), DATA[2])
             end
             if !normgrad
-                update!(GenDescent(ETA), ps, gs)
+                Flux.Optimise.update!(GenDescent(ETA), ps, gs)
             elseif normgrad
                 alpha = epoch_cfg[tl_i].second[3]
                 gradnorm = norm(reduce(vcat, [vec(gs[p]) for p ∈ ps]))
-                update!(
+                Flux.Optimise.update!(
                     GenDescent(ETA / (1 + alpha * gradnorm)), ps, gs
                 )
             end
@@ -319,6 +320,56 @@ function LossLandscapeAnalysis01(model, loss, data, ps0)
     return [norm(gvec), norm(NSvec - NSvec0)]
 end
 
+function PlotLossTrainCfg(
+    losses, train_cfg,
+    figsize, xlabel, ylabel, title,
+    labels, colors
+)
+    f = Figure(size=figsize)
+    ax = Axis(f[1, 1], xlabel=xlabel, ylabel=ylabel, title=title)
+    function switches_filter(i, train_cfg)
+        switches = cumsum([p.first for p ∈ train_cfg])
+        return [
+            switches[i_] for i_ ∈ 1:length(switches) if train_cfg[i_].second[2] == i
+        ]
+    end
+    switches_01 = switches_filter(1, train_cfg)
+    switches_02 = switches_filter(2, train_cfg)
+    if !isempty(switches_01)
+        vlines!(switches_01, color="black", linestyle=:dash)
+    end
+    if !isempty(switches_02)
+        vlines!(switches_02, color="black", linestyle=:dot)
+    end
+    lines!(f[1, 1], losses[1], label=labels[1], color=colors[1])
+    lines!(f[1, 1], losses[2], label=labels[1], color=colors[2])
+    f[1, 2] = Legend(f, ax, "", framevisible=false)
+    display("image/png", f)
+    return f
+end
 
+function PlotValueTrainCfg(
+    valdata, train_cfg, figsize, xlabel, ylabel, title, color
+)
+    f = Figure(size=figsize)
+    ax = Axis(f[1, 1], xlabel=xlabel, ylabel=ylabel, title=title)
+    function switches_filter(i, train_cfg)
+        switches = cumsum([p.first for p ∈ train_cfg])
+        return [
+            switches[i_] for i_ ∈ 1:length(switches) if train_cfg[i_].second[2] == i
+        ]
+    end
+    switches_01 = switches_filter(1, train_cfg)
+    switches_02 = switches_filter(2, train_cfg)
+    if !isempty(switches_01)
+        vlines!(switches_01, color="black", linestyle=:dash)
+    end
+    if !isempty(switches_02)
+        vlines!(switches_02, color="black", linestyle=:dot)
+    end
+    lines!(f[1, 1], valdata, color=color)
+    display("image/png", f)
+    return f
+end
 
 end
